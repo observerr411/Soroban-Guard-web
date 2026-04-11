@@ -16,6 +16,14 @@ export default function FindingsTable({ findings }: Props) {
     setExpandedIndex(prev => (prev === i ? null : i))
   }
 
+  // Keyboard: allow Enter/Space to expand rows
+  function handleKeyDown(e: React.KeyboardEvent, i: number) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      toggle(i)
+    }
+  }
+
   return (
     <div className="overflow-hidden rounded-xl border border-[#2a2d3a]">
       {/* Table header */}
