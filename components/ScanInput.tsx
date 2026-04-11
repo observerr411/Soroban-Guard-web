@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 
-type InputMode = 'code' | 'github'
+type InputMode = 'code' | 'github' | 'contractId'
 
 interface Props {
   onScan: (source: string) => void
@@ -13,15 +13,27 @@ export default function ScanInput({ onScan, loading }: Props) {
   const [mode, setMode] = useState<InputMode>('code')
   const [code, setCode] = useState('')
   const [repoUrl, setRepoUrl] = useState('')
+  const [contractId, setContractId] = useState('')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const source = mode === 'code' ? code.trim() : repoUrl.trim()
+    const source =
+      mode === 'code'
+        ? code.trim()
+        : mode === 'github'
+          ? repoUrl.trim()
+          : contractId.trim()
     if (!source) return
     onScan(source)
   }
 
-  const canSubmit = !loading && (mode === 'code' ? code.trim().length > 0 : repoUrl.trim().length > 0)
+  const canSubmit =
+    !loading &&
+    (mode === 'code'
+      ? code.trim().length > 0
+      : mode === 'github'
+        ? repoUrl.trim().length > 0
+        : contractId.trim().length > 0)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -49,6 +61,17 @@ export default function ScanInput({ onScan, loading }: Props) {
         >
           GitHub URL
         </TabButton>
+        <TabButton
+          active={mode === 'contractId'}
+          onClick={() => setMode('contractId')}
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+            </svg>
+          }
+        >
+          Contract ID
+        </TabButton>
       </div>
 
       {/* Input area */}
@@ -69,7 +92,7 @@ export default function ScanInput({ onScan, loading }: Props) {
             </span>
           )}
         </div>
-      ) : (
+      ) : mode === 'github' ? (
         <div className="space-y-2">
           <input
             type="url"
@@ -82,6 +105,22 @@ export default function ScanInput({ onScan, loading }: Props) {
           <p className="text-xs text-slate-500">
             The repository must be public. The scanner will clone and analyze all{' '}
             <code className="rounded bg-[#1a1d27] px-1 text-slate-400">.rs</code> files.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={contractId}
+            onChange={e => setContractId(e.target.value)}
+            placeholder="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+            className="w-full rounded-xl border border-[#2a2d3a] bg-[#12151f] px-4 py-3 font-mono text-sm text-slate-300 placeholder-slate-600 outline-none transition focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
+            disabled={loading}
+            spellCheck={false}
+          />
+          <p className="text-xs text-slate-500">
+            Enter a Soroban contract ID (C-address) deployed on Stellar. The scanner
+            will fetch the WASM bytecode via Soroban RPC and analyze it.
           </p>
         </div>
       )}
