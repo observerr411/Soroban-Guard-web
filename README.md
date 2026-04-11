@@ -1,27 +1,92 @@
 # Soroban Guard Web
 
-The frontend dashboard for **Soroban Guard** — an automated security scanner for [Soroban](https://soroban.stellar.org/) smart contracts.
+The frontend dashboard for **Soroban Guard** — an automated security scanner for [Soroban](https://soroban.stellar.org/) smart contracts on the **Stellar blockchain**.
 
 Built with Next.js 14, TypeScript, and Tailwind CSS. Part of the [Veritas Vaults Network](https://github.com/Veritas-Vaults-Network) ecosystem.
 
+---
+
+## Stellar Blockchain Integration
+
+Soroban Guard is purpose-built for the **Stellar / Soroban** ecosystem. Here is how the frontend integrates with the blockchain:
+
+### Freighter Wallet
+
+[Freighter](https://freighter.app) is the official Stellar browser extension wallet. The dashboard integrates with it via `window.freighter`:
+
+- Connect your Stellar account (G-address) directly from the header
+- Automatically detects the active network (Mainnet / Testnet / Futurenet)
+- Displays a live network badge so you always know which chain you are on
+- Wallet state is used to pre-fill the connected account's context for future on-chain features (e.g. submitting scan results as a Soroban contract invocation)
+
+```typescript
+// lib/wallet.ts
+import { connectFreighter, getFreighterNetwork } from '@/lib/wallet'
+
+const publicKey = await connectFreighter()   // G-address
+const network   = await getFreighterNetwork() // { name, networkPassphrase, horizonUrl, sorobanRpcUrl }
+```
+
+### Soroban Contract ID Scanning
+
+Beyond pasting source code or a GitHub URL, users can scan a **deployed contract** directly by its Soroban contract ID (C-address):
+
+1. Enter a C-address in the "Contract ID" tab of the scan input
+2. The core API (`soroban-guard-core`) resolves the WASM bytecode via Soroban RPC
+3. The WASM is decompiled and analyzed for vulnerabilities
+4. Findings are returned and displayed in the results dashboard
+
+```
+CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM
+```
+
+### Horizon & Soroban RPC
+
+`lib/stellar.ts` provides typed helpers for direct blockchain queries:
+
+| Function | Description |
+|---|---|
+| `fetchContractInfo(contractId, network)` | Fetch contract metadata from Horizon REST API |
+| `fetchContractWasm(contractId, network)` | Fetch WASM bytecode via `getContractWasm` RPC |
+| `fetchContractCode(wasmHash, network)` | Fetch ledger entry via `getLedgerEntries` RPC |
+| `checkNetworkHealth(network)` | Ping Horizon to verify connectivity |
+| `isValidContractId(id)` | Validate C-address format |
+| `isValidPublicKey(key)` | Validate G-address format |
+
+### Supported Networks
+
+| Network | Horizon | Soroban RPC |
+|---|---|---|
+| Mainnet | `horizon.stellar.org` | `mainnet.stellar.validationcloud.io` |
+| Testnet | `horizon-testnet.stellar.org` | `soroban-testnet.stellar.org` |
+| Futurenet | `horizon-futurenet.stellar.org` | `rpc-futurenet.stellar.org` |
+
+Network configuration lives in `types/stellar.ts` and is automatically synced from the connected Freighter wallet.
+
+---
+
 ## Features
 
-- Paste contract source code or provide a GitHub repo URL
+- Paste contract source code, enter a GitHub repo URL, or scan by Soroban contract ID
+- Connect Freighter wallet — live network detection (Mainnet / Testnet / Futurenet)
 - Real-time scan via the Soroban Guard Core REST API
 - Findings table with severity badges (High / Medium / Low)
-- Expandable rows with full finding detail
+- Expandable rows with full finding detail (function, file, line)
 - Summary bar with per-severity counts
+- Findings sorted High → Medium → Low
 - Empty state for clean contracts
-- Dark mode by default, fully responsive
+- Dark mode by default, fully responsive, keyboard accessible
 
 ## Tech Stack
 
-| Layer      | Technology              |
-|------------|-------------------------|
-| Framework  | Next.js 14 (App Router) |
-| Language   | TypeScript              |
-| Styling    | Tailwind CSS            |
-| API        | Axum REST (soroban-guard-core) |
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 14 (App Router) |
+| Language | TypeScript (strict) |
+| Styling | Tailwind CSS |
+| Wallet | Freighter (Stellar browser extension) |
+| Blockchain | Stellar Horizon REST API + Soroban RPC |
+| API | Axum REST (soroban-guard-core) |
 
 ## Getting Started
 
@@ -38,11 +103,13 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+Install [Freighter](https://freighter.app) in your browser to enable wallet features.
+
 ## Environment Variables
 
-| Variable               | Default                  | Description                        |
-|------------------------|--------------------------|------------------------------------|
-| `NEXT_PUBLIC_API_URL`  | `http://localhost:3001`  | Base URL for soroban-guard-core    |
+| Variable | Default | Description |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:3001` | Base URL for soroban-guard-core |
 
 ## API Contract
 
@@ -50,7 +117,7 @@ The app calls `POST /scan` on the core API:
 
 **Request**
 ```json
-{ "source": "<contract source code or github url>" }
+{ "source": "<contract source, github url, or contract ID>" }
 ```
 
 **Response**
@@ -73,25 +140,32 @@ The app calls `POST /scan` on the core API:
 
 ```
 app/
-  page.tsx          # Landing page with scan input
+  page.tsx            # Landing page — scan input + wallet connect
   results/
-    page.tsx        # Results page with findings table
-  layout.tsx        # Root layout + metadata
+    page.tsx          # Results page — findings table + summary
+  layout.tsx          # Root layout + metadata
+  loading.tsx         # Global loading spinner
+  not-found.tsx       # 404 page
 components/
-  ScanInput.tsx     # Code textarea + GitHub URL input + scan button
-  FindingsTable.tsx # Sortable findings table with expandable rows
-  FindingCard.tsx   # Expanded finding detail card
-  SeverityBadge.tsx # Colored severity pill (High/Medium/Low)
-  EmptyState.tsx    # Clean contract illustration
+  ScanInput.tsx       # Code / GitHub URL / Contract ID tabs + scan button
+  FindingsTable.tsx   # Expandable findings table
+  FindingCard.tsx     # Expanded finding detail card
+  SeverityBadge.tsx   # High / Medium / Low colored pill
+  EmptyState.tsx      # Clean contract illustration
+  WalletConnect.tsx   # Freighter wallet connect button
+  NetworkBadge.tsx    # Stellar network indicator pill
 lib/
-  api.ts            # fetch wrapper for the core API
+  api.ts              # fetch wrapper for soroban-guard-core
+  stellar.ts          # Horizon REST + Soroban RPC helpers
+  wallet.ts           # Freighter wallet integration
 types/
-  findings.ts       # Finding type matching core Rust struct
+  findings.ts         # Finding type matching core Rust struct
+  stellar.ts          # Stellar network + wallet types
 ```
 
 ## Sister Repos
 
-- [soroban-guard-core](https://github.com/Veritas-Vaults-Network/soroban-guard-core) — Rust/Axum analysis engine
+- [soroban-guard-core](https://github.com/Veritas-Vaults-Network/Soroban-Guard-Core) — Rust/Axum analysis engine
 - [soroban-guard-contracts](https://github.com/Veritas-Vaults-Network/soroban-guard-contracts) — Example contracts for testing
 
 ## License
