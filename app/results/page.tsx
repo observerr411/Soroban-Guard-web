@@ -6,10 +6,12 @@ import type { Finding, Severity } from '@/types/findings'
 import FindingsTable from '@/components/FindingsTable'
 import EmptyState from '@/components/EmptyState'
 import SeverityBadge from '@/components/SeverityBadge'
+import { exportJson, exportCsv } from '@/lib/export'
 
 export default function ResultsPage() {
   const router = useRouter()
   const [findings, setFindings] = useState<Finding[] | null>(null)
+  const [severityFilter, setSeverityFilter] = useState<'All' | Severity>('All')
 
   useEffect(() => {
     const raw = sessionStorage.getItem('sg_findings')
@@ -39,7 +41,7 @@ export default function ResultsPage() {
     )
   }
 
-  const counts: Record<Severity, number> = { High: 0, Medium: 0, Low: 0 }
+  const counts: Record<Severity, number> = { High: 0, Medium: 0, Low: 0, Info: 0 }
   for (const f of findings) counts[f.severity]++
 
   return (
@@ -75,7 +77,7 @@ export default function ResultsPage() {
               : `${findings.length} finding${findings.length !== 1 ? 's' : ''} detected across your contract.`}
           </p>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <SummaryCard
               label="Total Findings"
               value={findings.length}
@@ -103,6 +105,13 @@ export default function ResultsPage() {
               bg="bg-sky-500/5"
               border="border-sky-500/20"
             />
+            <SummaryCard
+              label="Info"
+              value={counts.Info}
+              color="text-slate-300"
+              bg="bg-slate-500/5"
+              border="border-slate-500/20"
+            />
           </div>
         </div>
 
@@ -115,21 +124,46 @@ export default function ResultsPage() {
               <h2 className="text-sm font-semibold text-slate-400">
                 Findings — click a row to expand details
               </h2>
-              <div className="flex gap-2">
-                {(['High', 'Medium', 'Low'] as Severity[]).map(s =>
-                  counts[s] > 0 ? (
-                    <SeverityBadge key={s} severity={s} size="sm" />
-                  ) : null,
-                )}
+              <div className="flex items-center gap-3">
+                <div className="hidden sm:flex gap-2">
+                  {(['All', 'High', 'Medium', 'Low', 'Info'] as (Severity | 'All')[]).map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setSeverityFilter(s === 'All' ? 'All' : (s as Severity))}
+                      className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+                        severityFilter === s ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex gap-2">
+                  {(['High', 'Medium', 'Low', 'Info'] as Severity[]).map(s =>
+                    counts[s] > 0 ? (
+                      <SeverityBadge key={s} severity={s} size="sm" />
+                    ) : null,
+                  )}
+                </div>
+
+                <div className="ml-4 flex gap-2">
+                  <button
+                    onClick={() => exportJson(findings)}
+                    className="rounded-md border border-[#2a2d3a] bg-[#12151f] px-3 py-1 text-sm text-slate-300 hover:bg-[#1a1d27]"
+                  >
+                    Export JSON
+                  </button>
+                  <button
+                    onClick={() => exportCsv(findings)}
+                    className="rounded-md border border-[#2a2d3a] bg-[#12151f] px-3 py-1 text-sm text-slate-300 hover:bg-[#1a1d27]"
+                  >
+                    Export CSV
+                  </button>
+                </div>
               </div>
             </div>
-            {/* Sort: High → Medium → Low */}
-            <FindingsTable
-              findings={[...findings].sort((a, b) => {
-                const order: Record<Severity, number> = { High: 0, Medium: 1, Low: 2 }
-                return order[a.severity] - order[b.severity]
-              })}
-            />
+            <FindingsTable findings={findings} severityFilter={severityFilter} />
           </div>
         )}
       </main>

@@ -42,6 +42,11 @@ export interface ContractScanRecord {
   highCount: number
   mediumCount: number
   lowCount: number
+  infoCount?: number
+  // original source that was scanned (code, github url, or contract id)
+  source?: string
+  // mode used when scanning: 'code' | 'github' | 'contractId'
+  mode?: 'code' | 'github' | 'contractId'
 }
 
 // Soroban contract metadata returned from Horizon

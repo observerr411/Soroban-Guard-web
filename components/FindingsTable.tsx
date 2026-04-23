@@ -7,9 +7,10 @@ import FindingCard from './FindingCard'
 
 interface Props {
   findings: Finding[]
+  severityFilter?: 'All' | Finding['severity']
 }
 
-export default function FindingsTable({ findings }: Props) {
+export default function FindingsTable({ findings, severityFilter = 'All' }: Props) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
 
   function toggle(i: number) {
@@ -24,6 +25,18 @@ export default function FindingsTable({ findings }: Props) {
     }
   }
 
+  // Apply severity filter and stable sort: High -> Medium -> Low -> Info
+  const order: Record<Finding['severity'], number> = {
+    High: 0,
+    Medium: 1,
+    Low: 2,
+    Info: 3,
+  }
+
+  const visible = [...findings]
+    .filter(f => (severityFilter === 'All' ? true : f.severity === severityFilter))
+    .sort((a, b) => order[a.severity] - order[b.severity])
+
   return (
     <div className="overflow-hidden rounded-xl border border-[#2a2d3a]">
       {/* Table header */}
@@ -35,7 +48,7 @@ export default function FindingsTable({ findings }: Props) {
         <span>Description</span>
       </div>
 
-      {findings.map((finding, i) => (
+  {visible.map((finding, i) => (
         <div key={i}>
           {/* Row */}
           <button

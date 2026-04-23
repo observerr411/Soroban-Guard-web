@@ -1,6 +1,6 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useState } from 'react'
 import ScanInput from '@/components/ScanInput'
 import WalletConnect from '@/components/WalletConnect'
@@ -9,9 +9,11 @@ import { scanContract } from '@/lib/api'
 import type { Finding } from '@/types/findings'
 import type { StellarNetwork } from '@/types/stellar'
 import { NETWORKS } from '@/types/stellar'
+import { addRecord } from '@/lib/history'
 
 export default function HomePage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [walletKey, setWalletKey] = useState<string | null>(null)
@@ -22,13 +24,37 @@ export default function HomePage() {
     setWalletNetwork(network)
   }
 
-  async function handleScan(source: string) {
+  async function handleScan(source: string, mode: 'code' | 'github' | 'contractId' = 'code') {
     setLoading(true)
     setError(null)
     try {
       const data = await scanContract(source)
       // Store results in sessionStorage so the results page can read them
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
+
+      // Append lightweight history record to localStorage
+      try {
+        const findings: Finding[] = data.findings
+        const high = findings.filter(f => f.severity === 'High').length
+        const medium = findings.filter(f => f.severity === 'Medium').length
+        const low = findings.filter(f => f.severity === 'Low').length
+        const info = findings.filter(f => f.severity === 'Info').length
+        addRecord({
+          contractId: mode === 'contractId' ? source : '',
+          network: walletNetwork.name,
+          scannedAt: new Date().toISOString(),
+          findingCount: findings.length,
+          highCount: high,
+          mediumCount: medium,
+          lowCount: low,
+          infoCount: info,
+          source,
+          mode,
+        })
+      } catch (err) {
+        // don't block the user if history write fails
+        console.warn('failed to write history', err)
+      }
       router.push('/results')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unexpected error'
@@ -44,15 +70,26 @@ export default function HomePage() {
       <header className="border-b border-[#2a2d3a] bg-[#0f1117]/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <Logo />
-          <a
-            href="https://github.com/Veritas-Vaults-Network"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[#2a2d3a] transition hover:text-white"
-          >
-            <GithubIcon />
-            Veritas Vaults Network
-          </a>
+          <div className="flex items-center gap-4">
+            <a
+              href="/history"
+              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[#2a2d3a] transition hover:text-white"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              History
+            </a>
+            <a
+              href="https://github.com/Veritas-Vaults-Network"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[#2a2d3a] transition hover:text-white"
+            >
+              <GithubIcon />
+              Veritas Vaults Network
+            </a>
+          </div>
           <WalletConnect onConnect={handleWalletConnect} />
         </div>
       </header>
@@ -82,7 +119,12 @@ export default function HomePage() {
 
           {/* Scan card */}
           <div className="rounded-2xl border border-[#2a2d3a] bg-[#1a1d27] p-6 text-left shadow-2xl">
-            <ScanInput onScan={handleScan} loading={loading} />
+            <ScanInput
+              onScan={handleScan}
+              loading={loading}
+              initialSource={searchParams?.get('source') ?? undefined}
+              initialMode={(searchParams?.get('mode') as any) ?? undefined}
+            />
 
             {error && (
               <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">

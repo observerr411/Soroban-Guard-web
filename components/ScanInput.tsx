@@ -5,15 +5,17 @@ import { useState } from 'react'
 type InputMode = 'code' | 'github' | 'contractId'
 
 interface Props {
-  onScan: (source: string) => void
+  onScan: (source: string, mode: InputMode) => void
   loading: boolean
+  initialSource?: string
+  initialMode?: InputMode
 }
 
-export default function ScanInput({ onScan, loading }: Props) {
-  const [mode, setMode] = useState<InputMode>('code')
-  const [code, setCode] = useState('')
-  const [repoUrl, setRepoUrl] = useState('')
-  const [contractId, setContractId] = useState('')
+export default function ScanInput({ onScan, loading, initialSource = '', initialMode = 'code' }: Props) {
+  const [mode, setMode] = useState<InputMode>(initialMode)
+  const [code, setCode] = useState(initialMode === 'code' ? initialSource : '')
+  const [repoUrl, setRepoUrl] = useState(initialMode === 'github' ? initialSource : '')
+  const [contractId, setContractId] = useState(initialMode === 'contractId' ? initialSource : '')
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -24,7 +26,7 @@ export default function ScanInput({ onScan, loading }: Props) {
           ? repoUrl.trim()
           : contractId.trim()
     if (!source) return
-    onScan(source)
+    onScan(source, mode)
   }
 
   const canSubmit =
