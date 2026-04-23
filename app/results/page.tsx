@@ -7,6 +7,7 @@ import { decodeFindings } from '@/lib/share'
 import FindingsTable from '@/components/FindingsTable'
 import EmptyState from '@/components/EmptyState'
 import SeverityBadge from '@/components/SeverityBadge'
+import ThemeToggle from '@/components/ThemeToggle'
 
 export default function ResultsPage() {
   const router = useRouter()
@@ -64,7 +65,7 @@ export default function ResultsPage() {
   return (
     <div className="flex min-h-screen flex-col">
       {/* Nav */}
-      <header className="border-b border-[#2a2d3a] bg-[#0f1117]/80 backdrop-blur-sm">
+      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <button
             onClick={handleScanAnother}
@@ -75,20 +76,14 @@ export default function ResultsPage() {
             </svg>
             Soroban Guard
           </button>
-          <div className="flex gap-2">
-            <button
-              onClick={handleShare}
-              className="rounded-lg border border-slate-600 px-4 py-1.5 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-white"
-              title="Copy results URL to clipboard"
-            >
-              {copied ? '✓ Copied' : 'Share results'}
-            </button>
+          <div className="flex items-center gap-3">
             <button
               onClick={handleScanAnother}
               className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
             >
               Scan another contract
             </button>
+            <ThemeToggle />
           </div>
         </div>
       </header>
@@ -162,7 +157,7 @@ export default function ResultsPage() {
         )}
       </main>
 
-      <footer className="border-t border-[#2a2d3a] py-6 text-center text-xs text-slate-600">
+      <footer className="border-t border-[var(--border)] py-6 text-center text-xs text-slate-600">
         Soroban Guard · Veritas Vaults Network
       </footer>
     </div>
@@ -174,7 +169,7 @@ function SummaryCard({
   value,
   color,
   bg,
-  border = 'border-[#2a2d3a]',
+  border = 'border-[var(--border)]',
 }: {
   label: string
   value: number

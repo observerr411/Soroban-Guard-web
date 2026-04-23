@@ -1,12 +1,14 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import ScanInput from '@/components/ScanInput'
 import WalletConnect from '@/components/WalletConnect'
 import NetworkBadge from '@/components/NetworkBadge'
+import NetworkHealthBanner from '@/components/NetworkHealthBanner'
+import ThemeToggle from '@/components/ThemeToggle'
 import { scanContract } from '@/lib/api'
-import { encodeFindings } from '@/lib/share'
+import { checkNetworkHealth } from '@/lib/stellar'
 import type { Finding } from '@/types/findings'
 import type { StellarNetwork } from '@/types/stellar'
 import { NETWORKS } from '@/types/stellar'
@@ -17,23 +19,34 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null)
   const [walletKey, setWalletKey] = useState<string | null>(null)
   const [walletNetwork, setWalletNetwork] = useState<StellarNetwork>(NETWORKS.testnet)
+  const [networkHealthy, setNetworkHealthy] = useState(true)
+  const [statusMessage, setStatusMessage] = useState('')
 
   function handleWalletConnect(publicKey: string, network: StellarNetwork) {
     setWalletKey(publicKey)
     setWalletNetwork(network)
+    setNetworkHealthy(true)
+    
+    // Check network health
+    checkNetworkHealth(network).then(healthy => {
+      setNetworkHealthy(healthy)
+    })
   }
 
   async function handleScan(source: string) {
     setLoading(true)
     setError(null)
+    setStatusMessage('Scanning your contract…')
     try {
       const data = await scanContract(source)
-      const encoded = encodeFindings(data.findings)
+      setStatusMessage(`Scan complete. ${data.findings.length} finding${data.findings.length !== 1 ? 's' : ''} detected.`)
+      // Store results in sessionStorage so the results page can read them
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
       router.push(`/results?r=${encoded}`)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unexpected error'
       setError(msg)
+      setStatusMessage('')
     } finally {
       setLoading(false)
     }
@@ -41,20 +54,40 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* Aria-live region for screen readers */}
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {statusMessage}
+      </div>
+
+      {/* Network health banner */}
+      {walletKey && !networkHealthy && (
+        <NetworkHealthBanner
+          network={walletNetwork.name}
+          onDismiss={() => setNetworkHealthy(true)}
+        />
+      )}
+
       {/* Nav */}
-      <header className="border-b border-[#2a2d3a] bg-[#0f1117]/80 backdrop-blur-sm">
+      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <Logo />
-          <a
-            href="https://github.com/Veritas-Vaults-Network"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[#2a2d3a] transition hover:text-white"
-          >
-            <GithubIcon />
-            Veritas Vaults Network
-          </a>
-          <WalletConnect onConnect={handleWalletConnect} />
+          <div className="flex items-center gap-3">
+            <a
+              href="https://github.com/Veritas-Vaults-Network"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[var(--border)] transition hover:text-white"
+            >
+              <GithubIcon />
+              Veritas Vaults Network
+            </a>
+            <ThemeToggle />
+            <WalletConnect onConnect={handleWalletConnect} />
+          </div>
         </div>
       </header>
 
@@ -92,7 +125,7 @@ export default function HomePage() {
           </p>
 
           {/* Scan card */}
-          <div className="rounded-2xl border border-[#2a2d3a] bg-[#1a1d27] p-6 text-left shadow-2xl">
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 text-left shadow-2xl">
             <ScanInput onScan={handleScan} loading={loading} />
 
             {error && (
@@ -107,7 +140,7 @@ export default function HomePage() {
         </section>
 
         {/* How it works */}
-        <section className="border-t border-[#2a2d3a] bg-[#0c0e16] py-16">
+        <section className="border-t border-[var(--border)] bg-[var(--bg-tertiary)] py-16">
           <div className="mx-auto max-w-5xl px-4 sm:px-6">
             <h2 className="mb-10 text-center text-2xl font-bold text-white">
               How it works
@@ -175,7 +208,7 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer className="border-t border-[#2a2d3a] py-8 text-center text-sm text-slate-600">
+      <footer className="border-t border-[var(--border)] py-8 text-center text-sm text-slate-600">
         <p>
           Built by{' '}
           <a
@@ -228,7 +261,7 @@ function Step({
   icon: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-[#2a2d3a] bg-[#1a1d27] p-6">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
       <div className="mb-4 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20">
           {icon}
@@ -257,10 +290,10 @@ function RepoCard({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`group block rounded-xl border p-5 transition hover:border-indigo-500/40 hover:bg-[#1a1d27] ${
+      className={`group block rounded-xl border p-5 transition hover:border-indigo-500/40 hover:bg-[var(--bg-secondary)] ${
         active
           ? 'border-indigo-500/40 bg-indigo-500/5'
-          : 'border-[#2a2d3a] bg-[#12151f]'
+          : 'border-[var(--border)] bg-[var(--bg-tertiary)]'
       }`}
     >
       <div className="mb-2 flex items-center gap-2">
