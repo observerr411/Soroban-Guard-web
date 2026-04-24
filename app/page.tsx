@@ -1,128 +1,66 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import ScanInput from '@/components/ScanInput'
 import WalletConnect from '@/components/WalletConnect'
 import NetworkBadge from '@/components/NetworkBadge'
 import NetworkHealthBanner from '@/components/NetworkHealthBanner'
 import ThemeToggle from '@/components/ThemeToggle'
-import { scanContract } from '@/lib/api'
+import { scanContract, ApiError } from '@/lib/api'
 import { checkNetworkHealth } from '@/lib/stellar'
-import { addScanRecord, getScanHistory } from '@/lib/history'
+import { useWallet } from '@/lib/WalletContext'
+import ContractIdBadge from '@/components/ContractIdBadge'
 import type { Finding } from '@/types/findings'
-import type { StellarNetwork, ContractScanRecord } from '@/types/stellar'
+import type { ContractScanRecord } from '@/types/stellar'
 import { NETWORKS } from '@/types/stellar'
 
-export default function HomePage() {
+export default function Page() {
+  return (
+    <Suspense>
+      <HomePage />
+    </Suspense>
+  )
+}
+
+function HomePage() {
   const router = useRouter()
+  const { publicKey: walletKey, network: walletNetwork } = useWallet()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [walletKey, setWalletKey] = useState<string | null>(null)
-  const [walletNetwork, setWalletNetwork] = useState<StellarNetwork>(NETWORKS.testnet)
   const [networkHealthy, setNetworkHealthy] = useState(true)
-  const [selectedScans, setSelectedScans] = useState<string[]>([])
-  const [scanHistory, setScanHistory] = useState<ContractScanRecord[]>([])
-  const [draggedCode, setDraggedCode] = useState('')
-  const [isDragging, setIsDragging] = useState(false)
-
-  useEffect(() => {
-    if (walletKey) {
-      setScanHistory(getScanHistory(walletKey))
-    } else {
-      setScanHistory([])
-    }
-  }, [walletKey])
-
-  useEffect(() => {
-    function handleDragOver(e: DragEvent) {
-      e.preventDefault()
-      setIsDragging(true)
-    }
-    function handleDragLeave(e: DragEvent) {
-      e.preventDefault()
-      if (!e.relatedTarget || !(e.currentTarget as Element).contains(e.relatedTarget as Element)) {
-        setIsDragging(false)
-      }
-    }
-    function handleDrop(e: DragEvent) {
-      e.preventDefault()
-      setIsDragging(false)
-      const files = e.dataTransfer?.files
-      if (files && files.length === 1) {
-        const file = files[0]
-        if (!file.name.endsWith('.rs')) {
-          setError('Only .rs files are supported')
-          return
-        }
-        if (file.size > 100000) {
-          setError('File must be less than 100,000 characters')
-          return
-        }
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          const content = e.target?.result as string
-          if (content.length > 100000) {
-            setError('File content exceeds 100,000 characters')
-            return
-          }
-          setDraggedCode(content)
-          setError(null)
-        }
-        reader.readAsText(file)
-      }
-    }
-    document.addEventListener('dragover', handleDragOver)
-    document.addEventListener('dragleave', handleDragLeave)
-    document.addEventListener('drop', handleDrop)
-    return () => {
-      document.removeEventListener('dragover', handleDragOver)
-      document.removeEventListener('dragleave', handleDragLeave)
-      document.removeEventListener('drop', handleDrop)
-    }
-  }, [])
-
-  function handleSelectScan(id: string, checked: boolean) {
-    if (checked) {
-      if (selectedScans.length < 2) {
-        setSelectedScans([...selectedScans, id])
-      }
-    } else {
-      setSelectedScans(selectedScans.filter(s => s !== id))
-    }
-  }
-
-  function handleCompare() {
-    if (selectedScans.length === 2) {
-      router.push(`/compare?a=${selectedScans[0]}&b=${selectedScans[1]}`)
-    }
-  }
-
-  function handleWalletConnect(publicKey: string, network: StellarNetwork) {
-    setWalletKey(publicKey)
-    setWalletNetwork(network)
-    setNetworkHealthy(true)
-    
-    // Check network health
-    checkNetworkHealth(network).then(healthy => {
-      setNetworkHealthy(healthy)
-    })
-  }
+  const [statusMessage, setStatusMessage] = useState('')
+  const [scanHistory] = useState<ContractScanRecord[]>([])
 
   async function handleScan(source: string) {
     setLoading(true)
     setError(null)
+    setRateLimitCountdown(null)
     setStatusMessage('Scanning your contract…')
+    
+    // Store the source for potential auto-retry
+    sessionStorage.setItem('sg_last_scan_source', source)
+    
     try {
+      const t0 = Date.now()
       const data = await scanContract(source)
+      const duration = ((Date.now() - t0) / 1000).toFixed(1)
       setStatusMessage(`Scan complete. ${data.findings.length} finding${data.findings.length !== 1 ? 's' : ''} detected.`)
       // Store results in sessionStorage so the results page can read them
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
+      sessionStorage.setItem('sg_duration', duration)
       router.push(`/results?r=${encoded}`)
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unexpected error'
-      setError(msg)
-      setStatusMessage('')
+      if (err instanceof ApiError && err.status === 429 && err.retryAfter) {
+        pendingSourceRef.current = source
+        setCountdown(err.retryAfter)
+        setError(null)
+        setStatusMessage(`Rate limited. Retrying in ${err.retryAfter}s…`)
+      } else {
+        const msg = err instanceof Error ? err.message : 'Unexpected error'
+        setError(msg)
+        setStatusMessage('')
+      }
     } finally {
       setLoading(false)
     }
@@ -131,16 +69,26 @@ export default function HomePage() {
   async function handleHistoryClick(contractId: string) {
     setLoading(true)
     setError(null)
+    setRateLimitCountdown(null)
+    
+    // Store the source for potential auto-retry
+    sessionStorage.setItem('sg_last_scan_source', contractId)
+    
     try {
       const data = await scanContract(contractId)
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
-      if (walletKey) {
-        addScanRecord(walletKey, contractId, walletNetwork.name, data.findings)
-      }
+      sessionStorage.removeItem('sg_duration')
       router.push('/results')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unexpected error'
-      setError(msg)
+      if (err instanceof ApiError && err.status === 429) {
+        // Handle rate limiting
+        const retrySeconds = err.retryAfter || 60 // Default to 60 seconds if no header
+        setRateLimitCountdown(retrySeconds)
+        setError(null) // Clear generic error for rate limiting
+      } else {
+        const msg = err instanceof Error ? err.message : 'Unexpected error'
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -171,6 +119,12 @@ export default function HomePage() {
           <Logo />
           <div className="flex items-center gap-3">
             <a
+              href="/history"
+              className="rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[var(--border)] transition hover:text-white"
+            >
+              History
+            </a>
+            <a
               href="https://github.com/Veritas-Vaults-Network"
               target="_blank"
               rel="noopener noreferrer"
@@ -180,7 +134,7 @@ export default function HomePage() {
               Veritas Vaults Network
             </a>
             <ThemeToggle />
-            <WalletConnect onConnect={handleWalletConnect} />
+            <WalletConnect />
           </div>
         </div>
       </header>
@@ -220,7 +174,16 @@ export default function HomePage() {
 
           {/* Scan card */}
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 text-left shadow-2xl">
-            <ScanInput onScan={handleScan} loading={loading} code={draggedCode} />
+            <ScanInput onScan={handleScan} loading={loading} countdown={countdown} initialValue={initialSource} />
+
+            {countdown > 0 && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Rate limited — retrying automatically in {countdown}s</span>
+              </div>
+            )}
 
             {error && (
               <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -228,6 +191,17 @@ export default function HomePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
                 <span>{error}</span>
+              </div>
+            )}
+
+            {rateLimitCountdown !== null && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>
+                  Rate limited — retry in {rateLimitCountdown}s
+                </span>
               </div>
             )}
           </div>
@@ -242,52 +216,34 @@ export default function HomePage() {
                     onClick={handleCompare}
                     className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
                   >
-                    Compare selected
-                  </button>
-                )}
-              </div>
-              <div className="space-y-2">
-                {scanHistory.slice(0, 5).map((record, idx) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedScans.includes(record.id)}
-                      onChange={(e) => handleSelectScan(record.id, e.target.checked)}
-                      className="rounded border-[var(--border)] bg-[var(--bg)] text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <button
-                      onClick={() => handleHistoryClick(record.contractId)}
-                      disabled={loading}
-                      className="flex-1 rounded-lg border border-[#2a2d3a] bg-[#12151f] p-3 text-left transition hover:border-indigo-500/40 hover:bg-[#1a1d27] disabled:opacity-50"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-mono text-sm text-slate-300">
-                            {record.contractId.slice(0, 12)}...{record.contractId.slice(-8)}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            {new Date(record.scannedAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <NetworkBadge network={NETWORKS[record.network]} />
-                          <div className="flex gap-1">
-                            {record.highCount > 0 && (
-                              <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
-                                {record.highCount}H
-                              </span>
-                            )}
-                            {record.mediumCount > 0 && (
-                              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-400">
-                                {record.mediumCount}M
-                              </span>
-                            )}
-                            {record.lowCount > 0 && (
-                              <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-xs text-sky-400">
-                                {record.lowCount}L
-                              </span>
-                            )}
-                          </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <ContractIdBadge
+                          id={record.contractId}
+                          className="text-slate-300"
+                        />
+                        <p className="text-xs text-slate-500">
+                          {new Date(record.scannedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <NetworkBadge network={NETWORKS[record.network]} />
+                        <div className="flex gap-1">
+                          {record.highCount > 0 && (
+                            <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
+                              {record.highCount}H
+                            </span>
+                          )}
+                          {record.mediumCount > 0 && (
+                            <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-400">
+                              {record.mediumCount}M
+                            </span>
+                          )}
+                          {record.lowCount > 0 && (
+                            <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-xs text-sky-400">
+                              {record.lowCount}L
+                            </span>
+                          )}
                         </div>
                       </div>
                     </button>
