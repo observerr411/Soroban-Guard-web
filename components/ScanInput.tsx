@@ -71,7 +71,7 @@ export default function ScanInput({ onScan, loading, countdown = 0, initialValue
     !loading &&
     !isRateLimited &&
     (mode === 'code'
-      ? code.trim().length > 0
+      ? code.trim().length > 0 && code.length <= 100000
       : mode === 'github'
         ? repoUrl.trim().length > 0 && validateGithub(repoUrl).valid
         : contractId.trim().length > 0 && contractValid)
@@ -130,9 +130,17 @@ export default function ScanInput({ onScan, loading, countdown = 0, initialValue
             disabled={loading}
           />
           {code.length > 0 && (
-            <span className="absolute bottom-3 right-3 text-xs text-slate-600">
+            <span className={`absolute bottom-3 right-3 text-xs ${
+              code.length > 100000 ? 'text-red-400' : code.length > 50000 ? 'text-amber-400' : 'text-slate-600'
+            }`}>
               {code.length.toLocaleString()} chars
             </span>
+          )}
+          {code.length > 100000 && (
+            <p className="mt-1.5 text-xs text-red-400">Contract too large. Maximum 100,000 characters.</p>
+          )}
+          {code.length > 50000 && code.length <= 100000 && (
+            <p className="mt-1.5 text-xs text-amber-400">Large contract — scan may be slow</p>
           )}
         </div>
       ) : mode === 'github' ? (

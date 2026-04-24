@@ -1,4 +1,5 @@
 import type { ScanRequest, ScanResponse } from '@/types/findings'
+import type { StellarNetwork } from '@/types/stellar'
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/\/$/, '')
 
@@ -16,12 +17,15 @@ export class ApiError extends Error {
   }
 }
 
-export async function scanContract(source: string): Promise<ScanResponse> {
+export async function scanContract(source: string, network?: StellarNetwork): Promise<ScanResponse> {
   const body: ScanRequest = { source }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (network) headers['X-Network'] = network.name
 
   const res = await fetch(`${API_BASE}/scan`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   })
 

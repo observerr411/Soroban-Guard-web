@@ -5,6 +5,7 @@ import { useState } from 'react'
 import ScanInput from '@/components/ScanInput'
 import WalletConnect from '@/components/WalletConnect'
 import NetworkBadge from '@/components/NetworkBadge'
+import NetworkSelector, { getStoredNetwork } from '@/components/NetworkSelector'
 import NetworkHealthBanner from '@/components/NetworkHealthBanner'
 import ThemeToggle from '@/components/ThemeToggle'
 import { scanContract, ApiError } from '@/lib/api'
@@ -32,6 +33,9 @@ function HomePage() {
   const [networkHealthy, setNetworkHealthy] = useState(true)
   const [statusMessage, setStatusMessage] = useState('')
   const [scanHistory] = useState<ContractScanRecord[]>([])
+  const [manualNetwork, setManualNetwork] = useState(() => getStoredNetwork())
+
+  const activeNetwork = walletKey ? walletNetwork : manualNetwork
 
   async function handleScan(source: string, mode: 'code' | 'github' | 'contractId' = 'code') {
     setLoading(true)
@@ -44,7 +48,7 @@ function HomePage() {
     
     try {
       const t0 = Date.now()
-      const data = await scanContract(source)
+      const data = await scanContract(source, activeNetwork)
       const duration = ((Date.now() - t0) / 1000).toFixed(1)
       setStatusMessage(`Scan complete. ${data.findings.length} finding${data.findings.length !== 1 ? 's' : ''} detected.`)
       // Store results in sessionStorage so the results page can read them
@@ -135,12 +139,15 @@ function HomePage() {
               Veritas Vaults Network
             </a>
             <ThemeToggle />
+            {!walletKey && (
+              <NetworkSelector value={manualNetwork} onChange={setManualNetwork} />
+            )}
             <WalletConnect />
           </div>
         </div>
       </header>
 
-      <main className="flex-1">
+      <main id="main-content" className="flex-1">
         {/* Hero */}
         <section className="mx-auto max-w-3xl px-4 pb-12 pt-20 text-center sm:px-6">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-400">
