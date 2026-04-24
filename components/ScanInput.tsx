@@ -7,15 +7,30 @@ type InputMode = 'code' | 'github' | 'contractId'
 interface Props {
   onScan: (source: string) => void
   loading: boolean
-  rateLimitCountdown?: number | null
+  countdown?: number
+  initialValue?: string
 }
 
-export default function ScanInput({ onScan, loading, rateLimitCountdown }: Props) {
-  const [mode, setMode] = useState<InputMode>('code')
-  const [code, setCode] = useState('')
+export default function ScanInput({ onScan, loading, countdown = 0, initialValue = '' }: Props) {
+  const [mode, setMode] = useState<InputMode>(() =>
+    initialValue.startsWith('C') && initialValue.length >= 56 ? 'contractId' : 'code'
+  )
+  const [code, setCode] = useState(initialValue.startsWith('C') && initialValue.length >= 56 ? '' : initialValue)
   const [repoUrl, setRepoUrl] = useState('')
   const [contractId, setContractId] = useState('')
+  const [normalized, setNormalized] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const normalizedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  function handleContractIdChange(raw: string) {
+    const clean = raw.trim().toUpperCase()
+    setContractId(clean)
+    if (clean !== raw) {
+      if (normalizedTimer.current) clearTimeout(normalizedTimer.current)
+      setNormalized(true)
+      normalizedTimer.current = setTimeout(() => setNormalized(false), 1000)
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -38,14 +53,16 @@ export default function ScanInput({ onScan, loading, rateLimitCountdown }: Props
     }
   }
 
+  const isRateLimited = countdown > 0
+
   const canSubmit =
     !loading &&
-    !rateLimitCountdown &&
+    !isRateLimited &&
     (mode === 'code'
       ? code.trim().length > 0
       : mode === 'github'
-        ? repoUrl.trim().length > 0
-        : contractId.trim().length > 0)
+        ? repoUrl.trim().length > 0 && validateGithub(repoUrl).valid
+        : contractId.trim().length > 0 && contractValid)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -87,7 +104,7 @@ export default function ScanInput({ onScan, loading, rateLimitCountdown }: Props
       </div>
 
       {/* Input area */}
-      {mode === 'code' ? (
+  {mode === 'code' ? (
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -117,23 +134,34 @@ export default function ScanInput({ onScan, loading, rateLimitCountdown }: Props
             className="w-full rounded-xl border border-[#2a2d3a] bg-[#12151f] px-4 py-3 text-slate-300 placeholder-slate-600 outline-none transition focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
             disabled={loading}
           />
-          <p className="text-xs text-slate-500">
-            The repository must be public. The scanner will clone and analyze all{' '}
-            <code className="rounded bg-[#1a1d27] px-1 text-slate-400">.rs</code> files.
-          </p>
+          {repoError ? (
+            <p className="text-xs text-rose-400">{repoError}</p>
+          ) : (
+            <p className="text-xs text-slate-500">
+              The repository must be public. The scanner will clone and analyze all{' '}
+              <code className="rounded bg-[#1a1d27] px-1 text-slate-400">.rs</code> files.
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
+          <div className="relative">
           <input
             type="text"
             value={contractId}
-            onChange={e => setContractId(e.target.value)}
+            onChange={e => handleContractIdChange(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
             className="w-full rounded-xl border border-[#2a2d3a] bg-[#12151f] px-4 py-3 font-mono text-sm text-slate-300 placeholder-slate-600 outline-none transition focus:border-indigo-500/60 focus:ring-1 focus:ring-indigo-500/30"
             disabled={loading}
             spellCheck={false}
           />
+          {normalized && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded bg-indigo-500/20 px-2 py-0.5 text-xs text-indigo-300 transition-opacity duration-500">
+              Normalized
+            </span>
+          )}
+          </div>
           <p className="text-xs text-slate-500">
             Enter a Soroban contract ID (C-address) deployed on Stellar. The scanner
             will fetch the WASM bytecode via Soroban RPC and analyze it.
@@ -148,7 +176,14 @@ export default function ScanInput({ onScan, loading, rateLimitCountdown }: Props
           disabled={!canSubmit}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >
-          {loading ? (
+          {isRateLimited ? (
+            <>
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Rate limited — retry in {countdown}s
+            </>
+          ) : loading ? (
             <>
               <svg className="spinner h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" d="M12 2a10 10 0 0 1 10 10" />
