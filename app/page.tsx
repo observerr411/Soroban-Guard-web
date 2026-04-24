@@ -1,7 +1,7 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import ScanInput from '@/components/ScanInput'
 import WalletConnect from '@/components/WalletConnect'
 import NetworkBadge from '@/components/NetworkBadge'
@@ -9,67 +9,20 @@ import NetworkHealthBanner from '@/components/NetworkHealthBanner'
 import ThemeToggle from '@/components/ThemeToggle'
 import { scanContract, ApiError } from '@/lib/api'
 import { checkNetworkHealth } from '@/lib/stellar'
+import { useWallet } from '@/lib/WalletContext'
+import ContractIdBadge from '@/components/ContractIdBadge'
 import type { Finding } from '@/types/findings'
-import type { StellarNetwork, ContractScanRecord } from '@/types/stellar'
+import type { ContractScanRecord } from '@/types/stellar'
 import { NETWORKS } from '@/types/stellar'
 
 export default function HomePage() {
   const router = useRouter()
+  const { publicKey: walletKey, network: walletNetwork } = useWallet()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [rateLimitCountdown, setRateLimitCountdown] = useState<number | null>(null)
-  const [walletKey, setWalletKey] = useState<string | null>(null)
-  const [walletNetwork, setWalletNetwork] = useState<StellarNetwork>(NETWORKS.testnet)
   const [networkHealthy, setNetworkHealthy] = useState(true)
   const [statusMessage, setStatusMessage] = useState('')
-  const [scanHistory, setScanHistory] = useState<ContractScanRecord[]>([])
-
-  // Load scan history on component mount
-  useEffect(() => {
-    if (walletKey) {
-      // Load scan history from localStorage or API
-      const stored = localStorage.getItem(`sg_history_${walletKey}`)
-      if (stored) {
-        try {
-          setScanHistory(JSON.parse(stored))
-        } catch {
-          setScanHistory([])
-        }
-      }
-    }
-  }, [walletKey])
-
-  // Rate limiting countdown effect
-  useEffect(() => {
-    if (rateLimitCountdown === null || rateLimitCountdown <= 0) return
-
-    const timer = setInterval(() => {
-      setRateLimitCountdown(prev => {
-        if (prev === null || prev <= 1) {
-          // Countdown finished, auto-retry the last scan
-          const lastSource = sessionStorage.getItem('sg_last_scan_source')
-          if (lastSource) {
-            handleScan(lastSource)
-          }
-          return null
-        }
-        return prev - 1
-      })
-    }, 1000)
-
-    return () => clearInterval(timer)
-  }, [rateLimitCountdown])
-
-  function handleWalletConnect(publicKey: string, network: StellarNetwork) {
-    setWalletKey(publicKey)
-    setWalletNetwork(network)
-    setNetworkHealthy(true)
-    
-    // Check network health
-    checkNetworkHealth(network).then(healthy => {
-      setNetworkHealthy(healthy)
-    })
-  }
+  const [scanHistory] = useState<ContractScanRecord[]>([])
 
   async function handleScan(source: string) {
     setLoading(true)
@@ -81,21 +34,20 @@ export default function HomePage() {
     sessionStorage.setItem('sg_last_scan_source', source)
     
     try {
+      const t0 = Date.now()
       const data = await scanContract(source)
+      const duration = ((Date.now() - t0) / 1000).toFixed(1)
       setStatusMessage(`Scan complete. ${data.findings.length} finding${data.findings.length !== 1 ? 's' : ''} detected.`)
       // Store results in sessionStorage so the results page can read them
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
-      
-      // Create encoded parameter for URL (assuming this exists somewhere)
-      const encoded = btoa(JSON.stringify({ source, timestamp: Date.now() }))
+      sessionStorage.setItem('sg_duration', duration)
       router.push(`/results?r=${encoded}`)
     } catch (err) {
-      if (err instanceof ApiError && err.status === 429) {
-        // Handle rate limiting
-        const retrySeconds = err.retryAfter || 60 // Default to 60 seconds if no header
-        setRateLimitCountdown(retrySeconds)
-        setError(null) // Clear generic error for rate limiting
-        setStatusMessage('')
+      if (err instanceof ApiError && err.status === 429 && err.retryAfter) {
+        pendingSourceRef.current = source
+        setCountdown(err.retryAfter)
+        setError(null)
+        setStatusMessage(`Rate limited. Retrying in ${err.retryAfter}s…`)
       } else {
         const msg = err instanceof Error ? err.message : 'Unexpected error'
         setError(msg)
@@ -117,6 +69,7 @@ export default function HomePage() {
     try {
       const data = await scanContract(contractId)
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
+      sessionStorage.removeItem('sg_duration')
       router.push('/results')
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
@@ -167,7 +120,7 @@ export default function HomePage() {
               Veritas Vaults Network
             </a>
             <ThemeToggle />
-            <WalletConnect onConnect={handleWalletConnect} />
+            <WalletConnect />
           </div>
         </div>
       </header>
@@ -207,7 +160,16 @@ export default function HomePage() {
 
           {/* Scan card */}
           <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 text-left shadow-2xl">
-            <ScanInput onScan={handleScan} loading={loading} rateLimitCountdown={rateLimitCountdown} />
+            <ScanInput onScan={handleScan} loading={loading} countdown={countdown} />
+
+            {countdown > 0 && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Rate limited — retrying automatically in {countdown}s</span>
+              </div>
+            )}
 
             {error && (
               <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -244,9 +206,10 @@ export default function HomePage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-mono text-sm text-slate-300">
-                          {record.contractId.slice(0, 12)}...{record.contractId.slice(-8)}
-                        </p>
+                        <ContractIdBadge
+                          id={record.contractId}
+                          className="text-slate-300"
+                        />
                         <p className="text-xs text-slate-500">
                           {new Date(record.scannedAt).toLocaleDateString()}
                         </p>
