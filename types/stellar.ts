@@ -35,6 +35,7 @@ export interface WalletState {
 }
 
 export interface ContractScanRecord {
+  publicKey: string
   contractId: string
   network: string
   scannedAt: string
@@ -42,11 +43,8 @@ export interface ContractScanRecord {
   highCount: number
   mediumCount: number
   lowCount: number
-  infoCount?: number
-  // original source that was scanned (code, github url, or contract id)
-  source?: string
-  // mode used when scanning: 'code' | 'github' | 'contractId'
-  mode?: 'code' | 'github' | 'contractId'
+  id: string
+  findings: Array<{ severity: string; check_name: string; description: string; function_name: string; file_path: string; line: number }>
 }
 
 // Soroban contract metadata returned from Horizon

@@ -5,60 +5,91 @@ import { useState } from 'react'
 import ScanInput from '@/components/ScanInput'
 import WalletConnect from '@/components/WalletConnect'
 import NetworkBadge from '@/components/NetworkBadge'
-import { scanContract } from '@/lib/api'
+import NetworkHealthBanner from '@/components/NetworkHealthBanner'
+import ThemeToggle from '@/components/ThemeToggle'
+import { scanContract, ApiError } from '@/lib/api'
+import { checkNetworkHealth } from '@/lib/stellar'
+import { useWallet } from '@/lib/WalletContext'
+import ContractIdBadge from '@/components/ContractIdBadge'
 import type { Finding } from '@/types/findings'
-import type { StellarNetwork } from '@/types/stellar'
+import type { ContractScanRecord } from '@/types/stellar'
 import { NETWORKS } from '@/types/stellar'
 import { addRecord } from '@/lib/history'
 
-export default function HomePage() {
+export default function Page() {
+  return (
+    <Suspense>
+      <HomePage />
+    </Suspense>
+  )
+}
+
+function HomePage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
+  const { publicKey: walletKey, network: walletNetwork } = useWallet()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [walletKey, setWalletKey] = useState<string | null>(null)
-  const [walletNetwork, setWalletNetwork] = useState<StellarNetwork>(NETWORKS.testnet)
-
-  function handleWalletConnect(publicKey: string, network: StellarNetwork) {
-    setWalletKey(publicKey)
-    setWalletNetwork(network)
-  }
+  const [networkHealthy, setNetworkHealthy] = useState(true)
+  const [statusMessage, setStatusMessage] = useState('')
+  const [scanHistory] = useState<ContractScanRecord[]>([])
 
   async function handleScan(source: string, mode: 'code' | 'github' | 'contractId' = 'code') {
     setLoading(true)
     setError(null)
+    setRateLimitCountdown(null)
+    setStatusMessage('Scanning your contract…')
+    
+    // Store the source for potential auto-retry
+    sessionStorage.setItem('sg_last_scan_source', source)
+    
     try {
+      const t0 = Date.now()
       const data = await scanContract(source)
+      const duration = ((Date.now() - t0) / 1000).toFixed(1)
+      setStatusMessage(`Scan complete. ${data.findings.length} finding${data.findings.length !== 1 ? 's' : ''} detected.`)
       // Store results in sessionStorage so the results page can read them
       sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
-
-      // Append lightweight history record to localStorage
-      try {
-        const findings: Finding[] = data.findings
-        const high = findings.filter(f => f.severity === 'High').length
-        const medium = findings.filter(f => f.severity === 'Medium').length
-        const low = findings.filter(f => f.severity === 'Low').length
-        const info = findings.filter(f => f.severity === 'Info').length
-        addRecord({
-          contractId: mode === 'contractId' ? source : '',
-          network: walletNetwork.name,
-          scannedAt: new Date().toISOString(),
-          findingCount: findings.length,
-          highCount: high,
-          mediumCount: medium,
-          lowCount: low,
-          infoCount: info,
-          source,
-          mode,
-        })
-      } catch (err) {
-        // don't block the user if history write fails
-        console.warn('failed to write history', err)
+      sessionStorage.setItem('sg_duration', duration)
+      router.push(`/results?r=${encoded}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429 && err.retryAfter) {
+        pendingSourceRef.current = source
+        setCountdown(err.retryAfter)
+        setError(null)
+        setStatusMessage(`Rate limited. Retrying in ${err.retryAfter}s…`)
+      } else {
+        const msg = err instanceof Error ? err.message : 'Unexpected error'
+        setError(msg)
+        setStatusMessage('')
       }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleHistoryClick(contractId: string) {
+    setLoading(true)
+    setError(null)
+    setRateLimitCountdown(null)
+    
+    // Store the source for potential auto-retry
+    sessionStorage.setItem('sg_last_scan_source', contractId)
+    
+    try {
+      const data = await scanContract(contractId)
+      sessionStorage.setItem('sg_findings', JSON.stringify(data.findings))
+      sessionStorage.removeItem('sg_duration')
       router.push('/results')
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unexpected error'
-      setError(msg)
+      if (err instanceof ApiError && err.status === 429) {
+        // Handle rate limiting
+        const retrySeconds = err.retryAfter || 60 // Default to 60 seconds if no header
+        setRateLimitCountdown(retrySeconds)
+        setError(null) // Clear generic error for rate limiting
+      } else {
+        const msg = err instanceof Error ? err.message : 'Unexpected error'
+        setError(msg)
+      }
     } finally {
       setLoading(false)
     }
@@ -66,31 +97,46 @@ export default function HomePage() {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* Aria-live region for screen readers */}
+      <div
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {statusMessage}
+      </div>
+
+      {/* Network health banner */}
+      {walletKey && !networkHealthy && (
+        <NetworkHealthBanner
+          network={walletNetwork.name}
+          onDismiss={() => setNetworkHealthy(true)}
+        />
+      )}
+
       {/* Nav */}
-      <header className="border-b border-[#2a2d3a] bg-[#0f1117]/80 backdrop-blur-sm">
+      <header className="border-b border-[var(--border)] bg-[var(--bg)]/80 backdrop-blur-sm">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <Logo />
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <a
               href="/history"
-              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[#2a2d3a] transition hover:text-white"
+              className="rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[var(--border)] transition hover:text-white"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
               History
             </a>
             <a
               href="https://github.com/Veritas-Vaults-Network"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[#2a2d3a] transition hover:text-white"
+              className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm text-slate-400 ring-1 ring-[var(--border)] transition hover:text-white"
             >
               <GithubIcon />
               Veritas Vaults Network
             </a>
+            <ThemeToggle />
+            <WalletConnect />
           </div>
-          <WalletConnect onConnect={handleWalletConnect} />
         </div>
       </header>
 
@@ -102,8 +148,18 @@ export default function HomePage() {
             Soroban Smart Contract Security
           </div>
           {walletKey && (
-            <div className="mb-3 flex justify-center">
+            <div className="mb-3 flex flex-col items-center gap-3">
               <NetworkBadge network={walletNetwork} />
+              {walletNetwork.name === 'futurenet' && (
+                <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm text-violet-300">
+                  <p className="flex items-start gap-2">
+                    <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>You are connected to Futurenet. This network is experimental and contract data may be incomplete.</span>
+                  </p>
+                </div>
+              )}
             </div>
           )}          <h1 className="mb-4 text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
             Find vulnerabilities{' '}
@@ -118,13 +174,17 @@ export default function HomePage() {
           </p>
 
           {/* Scan card */}
-          <div className="rounded-2xl border border-[#2a2d3a] bg-[#1a1d27] p-6 text-left shadow-2xl">
-            <ScanInput
-              onScan={handleScan}
-              loading={loading}
-              initialSource={searchParams?.get('source') ?? undefined}
-              initialMode={(searchParams?.get('mode') as any) ?? undefined}
-            />
+          <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6 text-left shadow-2xl">
+            <ScanInput onScan={handleScan} loading={loading} countdown={countdown} initialValue={initialSource} />
+
+            {countdown > 0 && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>Rate limited — retrying automatically in {countdown}s</span>
+              </div>
+            )}
 
             {error && (
               <div className="mt-4 flex items-start gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
@@ -134,11 +194,69 @@ export default function HomePage() {
                 <span>{error}</span>
               </div>
             )}
+
+            {rateLimitCountdown !== null && (
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+                <svg className="mt-0.5 h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>
+                  Rate limited — retry in {rateLimitCountdown}s
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Recent scans */}
+          {walletKey && scanHistory.length > 0 && (
+            <div className="mt-8 rounded-2xl border border-[#2a2d3a] bg-[#1a1d27] p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Your recent scans</h3>
+                {selectedScans.length === 2 && (
+                  <button
+                    onClick={handleCompare}
+                    className="rounded-lg bg-indigo-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <ContractIdBadge
+                          id={record.contractId}
+                          className="text-slate-300"
+                        />
+                        <p className="text-xs text-slate-500">
+                          {new Date(record.scannedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <NetworkBadge network={NETWORKS[record.network]} />
+                        <div className="flex gap-1">
+                          {record.highCount > 0 && (
+                            <span className="rounded-full bg-red-500/20 px-2 py-0.5 text-xs text-red-400">
+                              {record.highCount}H
+                            </span>
+                          )}
+                          {record.mediumCount > 0 && (
+                            <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-xs text-amber-400">
+                              {record.mediumCount}M
+                            </span>
+                          )}
+                          {record.lowCount > 0 && (
+                            <span className="rounded-full bg-sky-500/20 px-2 py-0.5 text-xs text-sky-400">
+                              {record.lowCount}L
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* How it works */}
-        <section className="border-t border-[#2a2d3a] bg-[#0c0e16] py-16">
+        <section className="border-t border-[var(--border)] bg-[var(--bg-tertiary)] py-16">
           <div className="mx-auto max-w-5xl px-4 sm:px-6">
             <h2 className="mb-10 text-center text-2xl font-bold text-white">
               How it works
@@ -206,7 +324,20 @@ export default function HomePage() {
         </section>
       </main>
 
-      <footer className="border-t border-[#2a2d3a] py-8 text-center text-sm text-slate-600">
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="rounded-lg bg-white p-8 text-center text-black shadow-2xl">
+            <svg className="mx-auto h-12 w-12 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
+            </svg>
+            <h3 className="mt-4 text-lg font-semibold">Drop your .rs file here</h3>
+            <p className="mt-2 text-sm text-gray-600">Upload a Rust source file to scan for vulnerabilities</p>
+          </div>
+        </div>
+      )}
+
+      <footer className="border-t border-[var(--border)] py-8 text-center text-sm text-slate-600">
         <p>
           Built by{' '}
           <a
@@ -259,7 +390,7 @@ function Step({
   icon: React.ReactNode
 }) {
   return (
-    <div className="rounded-xl border border-[#2a2d3a] bg-[#1a1d27] p-6">
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-6">
       <div className="mb-4 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-400 ring-1 ring-indigo-500/20">
           {icon}
@@ -288,10 +419,10 @@ function RepoCard({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`group block rounded-xl border p-5 transition hover:border-indigo-500/40 hover:bg-[#1a1d27] ${
+      className={`group block rounded-xl border p-5 transition hover:border-indigo-500/40 hover:bg-[var(--bg-secondary)] ${
         active
           ? 'border-indigo-500/40 bg-indigo-500/5'
-          : 'border-[#2a2d3a] bg-[#12151f]'
+          : 'border-[var(--border)] bg-[var(--bg-tertiary)]'
       }`}
     >
       <div className="mb-2 flex items-center gap-2">

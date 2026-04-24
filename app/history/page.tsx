@@ -2,69 +2,87 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { getHistory, removeAt, clearHistory } from '@/lib/history'
-import type { ContractScanRecord } from '@/types/stellar'
+import type { Finding } from '@/types/findings'
+import ConfirmModal from '@/components/ConfirmModal'
+
+interface HistoryEntry {
+  id: string
+  date: string
+  source: string
+  findings: Finding[]
+}
+
+const STORAGE_KEY = 'sg_history'
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]')
+  } catch {
+    return []
+  }
+}
 
 export default function HistoryPage() {
-  const [records, setRecords] = useState<ContractScanRecord[]>([])
   const router = useRouter()
+  const [entries, setEntries] = useState<HistoryEntry[]>([])
+  const [showConfirm, setShowConfirm] = useState(false)
 
   useEffect(() => {
-    setRecords(getHistory())
+    setEntries(loadHistory())
   }, [])
 
-  function handleRerun(rec: ContractScanRecord) {
-    const params = new URLSearchParams()
-    if (rec.source) params.set('source', rec.source)
-    if (rec.mode) params.set('mode', rec.mode)
-    router.push('/?' + params.toString())
-  }
-
-  function handleRemove(i: number) {
-    removeAt(i)
-    setRecords(getHistory())
-  }
-
-  function handleClear() {
-    clearHistory()
-    setRecords([])
-  }
-
-  if (records.length === 0) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-10 text-center">
-        <h1 className="mb-4 text-2xl font-bold text-white">Scan History</h1>
-        <p className="mb-6 text-sm text-slate-400">No past scans saved yet.</p>
-      </div>
-    )
+  function clearHistory() {
+    localStorage.removeItem(STORAGE_KEY)
+    setEntries([])
+    setShowConfirm(false)
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-10">
+    <div className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Scan History</h1>
-        <div className="flex gap-2">
-          <button onClick={handleClear} className="rounded-md border border-[#2a2d3a] px-3 py-1 text-sm text-slate-300">Clear</button>
-        </div>
+        {entries.length > 0 && (
+          <button
+            onClick={() => setShowConfirm(true)}
+            className="rounded-lg border border-red-500/30 px-4 py-2 text-sm text-red-400 transition hover:bg-red-500/10"
+          >
+            Clear history
+          </button>
+        )}
       </div>
 
-      <div className="space-y-3">
-        {records.map((r, i) => (
-          <div key={i} className="rounded-lg border border-[#2a2d3a] bg-[#0f1117] p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm text-slate-400">{new Date(r.scannedAt).toLocaleString()}</div>
-                <div className="mt-1 text-lg font-semibold text-white">{r.findingCount} findings</div>
-                <div className="mt-1 text-sm text-slate-400">High {r.highCount} · Medium {r.mediumCount} · Low {r.lowCount} · Info {r.infoCount ?? 0}</div>
+      {entries.length === 0 ? (
+        <p className="text-sm text-slate-500">No scan history yet.</p>
+      ) : (
+        <ul className="space-y-3">
+          {entries.map(e => (
+            <li
+              key={e.id}
+              className="rounded-xl border border-[#2a2d3a] bg-[#12151f] px-5 py-4"
+            >
+              <div className="flex items-center justify-between">
+                <span className="truncate font-mono text-sm text-slate-300">{e.source}</span>
+                <span className="ml-4 shrink-0 text-xs text-slate-500">
+                  {new Date(e.date).toLocaleDateString()}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleRerun(r)} className="rounded-md bg-indigo-600 px-3 py-1 text-sm text-white">Re-run</button>
-                <button onClick={() => handleRemove(i)} className="rounded-md border border-[#2a2d3a] px-2 py-1 text-sm text-slate-300">Remove</button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
+              <p className="mt-1 text-xs text-slate-500">
+                {e.findings.length} finding{e.findings.length !== 1 ? 's' : ''}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {showConfirm && (
+        <ConfirmModal
+          title="Clear all history?"
+          description="This will permanently delete all scan records from this browser. This cannot be undone."
+          confirmLabel="Clear history"
+          onConfirm={clearHistory}
+          onCancel={() => setShowConfirm(false)}
+        />
+      )}
     </div>
   )
 }

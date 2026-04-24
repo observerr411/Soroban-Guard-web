@@ -1,4 +1,4 @@
-export type Severity = 'High' | 'Medium' | 'Low' | 'Info'
+export type Severity = 'Critical' | 'High' | 'Medium' | 'Low'
 
 export interface Finding {
   check_name: string
@@ -7,6 +7,7 @@ export interface Finding {
   line: number
   function_name: string
   description: string
+  remediation?: string
 }
 
 export interface ScanResponse {

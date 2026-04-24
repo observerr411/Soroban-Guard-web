@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { WalletProvider } from '@/lib/WalletContext'
 
 export const metadata: Metadata = {
   title: 'Soroban Guard — Smart Contract Security Scanner',
@@ -19,9 +20,21 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="min-h-screen bg-[#0f1117] text-slate-200 antialiased">
-        {children}
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                const theme = localStorage.getItem('sg_theme') || 'dark';
+                document.documentElement.setAttribute('data-theme', theme);
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className="min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased">
+        <WalletProvider>{children}</WalletProvider>
       </body>
     </html>
   )

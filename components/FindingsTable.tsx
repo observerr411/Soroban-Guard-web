@@ -1,23 +1,45 @@
 'use client'
 
 import { useState } from 'react'
-import type { Finding } from '@/types/findings'
+import type { Finding, Severity } from '@/types/findings'
 import SeverityBadge from './SeverityBadge'
 import FindingCard from './FindingCard'
+import CheckTooltip from './CheckTooltip'
 
 interface Props {
   findings: Finding[]
-  severityFilter?: 'All' | Finding['severity']
+  pageSize?: number
+  forceExpandedIndex?: number | null
 }
 
-export default function FindingsTable({ findings, severityFilter = 'All' }: Props) {
+export default function FindingsTable({ findings, pageSize = 20, forceExpandedIndex }: Props) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null)
+  const [currentPage, setCurrentPage] = useState(0)
+  const [isPrint, setIsPrint] = useState(false)
+
+  useEffect(() => {
+    if (forceExpandedIndex !== undefined) {
+      setExpandedIndex(forceExpandedIndex)
+    }
+  }, [forceExpandedIndex])
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('print')
+    const handleChange = (e: MediaQueryListEvent) => setIsPrint(e.matches)
+    setIsPrint(mediaQuery.matches)
+    mediaQuery.addEventListener('change', handleChange)
+    return () => mediaQuery.removeEventListener('change', handleChange)
+  }, [])
+
+  const totalPages = Math.ceil(findings.length / pageSize)
+  const start = currentPage * pageSize
+  const end = start + pageSize
+  const paginatedFindings = findings.slice(start, end)
 
   function toggle(i: number) {
     setExpandedIndex(prev => (prev === i ? null : i))
   }
 
-  // Keyboard: allow Enter/Space to expand rows
   function handleKeyDown(e: React.KeyboardEvent, i: number) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
@@ -25,84 +47,110 @@ export default function FindingsTable({ findings, severityFilter = 'All' }: Prop
     }
   }
 
-  // Apply severity filter and stable sort: High -> Medium -> Low -> Info
-  const order: Record<Finding['severity'], number> = {
-    High: 0,
-    Medium: 1,
-    Low: 2,
-    Info: 3,
-  }
-
-  const visible = [...findings]
-    .filter(f => (severityFilter === 'All' ? true : f.severity === severityFilter))
-    .sort((a, b) => order[a.severity] - order[b.severity])
+  const sorted = [...findings].sort((a, b) => {
+    const order: Record<Severity, number> = { Critical: 0, High: 1, Medium: 2, Low: 3 }
+    return order[a.severity] - order[b.severity]
+  })
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[#2a2d3a]">
-      {/* Table header */}
-      <div className="hidden grid-cols-[120px_1fr_1fr_80px_1fr] gap-4 border-b border-[#2a2d3a] bg-[#12151f] px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 sm:grid">
-        <span>Severity</span>
-        <span>Check</span>
-        <span>Function</span>
-        <span>Line</span>
-        <span>Description</span>
-      </div>
+    <div>
+      <div className="overflow-hidden rounded-xl border border-[var(--border)]">
+        {/* Table header */}
+        <div className="hidden grid-cols-[120px_1fr_1fr_80px_1fr] gap-4 border-b border-[var(--border)] bg-[var(--bg-tertiary)] px-5 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500 sm:grid">
+          <span>Severity</span>
+          <span>Check</span>
+          <span>Function</span>
+          <span>Line</span>
+          <span>Description</span>
+        </div>
 
-  {visible.map((finding, i) => (
-        <div key={i}>
-          {/* Row */}
-          <button
-            onClick={() => toggle(i)}
-            className={`w-full border-b border-[#2a2d3a] px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-[#1a1d27] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-              expandedIndex === i ? 'bg-[#1a1d27]' : 'bg-[#0f1117]'
-            }`}
-            aria-expanded={expandedIndex === i}
-          >
-            {/* Mobile layout */}
-            <div className="flex items-start justify-between gap-3 sm:hidden">
-              <div className="flex-1 space-y-1">
-                <div className="flex items-center gap-2">
-                  <SeverityBadge severity={finding.severity} size="sm" />
-                  <span className="font-mono text-xs text-indigo-400">
+        {paginatedFindings.map((finding, i) => {
+          const globalIndex = start + i
+          return (
+            <div key={globalIndex} data-finding-index={globalIndex}>
+              {/* Row */}
+              <button
+                onClick={() => toggle(globalIndex)}
+                className={`w-full border-b border-[var(--border)] px-5 py-4 text-left transition-colors last:border-b-0 hover:bg-[var(--bg-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  expandedIndex === globalIndex ? 'bg-[var(--bg-hover)]' : 'bg-[var(--bg)]'
+                }`}
+                aria-expanded={expandedIndex === globalIndex}
+              >
+                {/* Mobile layout */}
+                <div className="flex items-start justify-between gap-3 sm:hidden">
+                  <div className="flex-1 space-y-1">
+                    <div className="flex items-center gap-2">
+                      <SeverityBadge severity={finding.severity} size="sm" />
+                      <span className="font-mono text-xs text-indigo-400">
+                        {finding.check_name}
+                      </span>
+                    </div>
+                    <p className="line-clamp-2 text-sm text-slate-400">
+                      {finding.description}
+                    </p>
+                  </div>
+                  <ChevronIcon expanded={expandedIndex === globalIndex} />
+                </div>
+
+                {/* Desktop layout */}
+                <div className="hidden grid-cols-[120px_1fr_1fr_80px_1fr] items-center gap-4 sm:grid">
+                  <div className="flex items-center gap-2">
+                    <SeverityBadge severity={finding.severity} size="sm" />
+                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{finding.severity}</span>
+                  </div>
+                  <span className="font-mono text-sm text-indigo-400">
                     {finding.check_name}
                   </span>
+                  <span className="truncate font-mono text-sm text-slate-300">
+                    {finding.function_name}
+                  </span>
+                  <span className="font-mono text-sm text-slate-400">
+                    {finding.line}
+                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="line-clamp-1 text-sm text-slate-400">
+                      {finding.description}
+                    </span>
+                    <ChevronIcon expanded={expandedIndex === globalIndex} />
+                  </div>
                 </div>
-                <p className="line-clamp-2 text-sm text-slate-400">
-                  {finding.description}
-                </p>
-              </div>
-              <ChevronIcon expanded={expandedIndex === i} />
-            </div>
+              </button>
 
-            {/* Desktop layout */}
-            <div className="hidden grid-cols-[120px_1fr_1fr_80px_1fr] items-center gap-4 sm:grid">
-              <SeverityBadge severity={finding.severity} size="sm" />
-              <span className="font-mono text-sm text-indigo-400">
-                {finding.check_name}
-              </span>
-              <span className="truncate font-mono text-sm text-slate-300">
-                {finding.function_name}
-              </span>
-              <span className="font-mono text-sm text-slate-400">
-                {finding.line}
-              </span>
-              <div className="flex items-center justify-between gap-2">
-                <span className="line-clamp-1 text-sm text-slate-400">
-                  {finding.description}
-                </span>
-                <ChevronIcon expanded={expandedIndex === i} />
-              </div>
+              {/* Expanded detail */}
+              {(expandedIndex === globalIndex || isPrint) && (
+                <div className="border-b border-[var(--border)] bg-[var(--bg-tertiary)] px-5 py-4 last:border-b-0">
+                  <FindingCard finding={finding} />
+                </div>
+              )}
             </div>
-          </button>
+          )
+        })}
+      </div>
 
-          {/* Expanded detail */}
-          {expandedIndex === i && (
-            <div className="border-b border-[#2a2d3a] bg-[#0c0e16] px-5 py-4 last:border-b-0">
-              <FindingCard finding={finding} />
-            </div>
-          )}
+      {/* Pagination controls */}
+      {totalPages > 1 && (
+        <div className="mt-6 flex items-center justify-between">
+          <p className="text-sm text-slate-500">
+            Showing {start + 1}–{Math.min(end, findings.length)} of {findings.length}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+              disabled={currentPage === 0}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-slate-400 transition disabled:opacity-50 hover:enabled:bg-[var(--bg-hover)] hover:enabled:text-white"
+            >
+              Previous
+            </button>
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={currentPage === totalPages - 1}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm font-medium text-slate-400 transition disabled:opacity-50 hover:enabled:bg-[var(--bg-hover)] hover:enabled:text-white"
+            >
+              Next
+            </button>
+          </div>
         </div>
-      ))}
+      )}
     </div>
   )
 }
