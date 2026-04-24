@@ -1,9 +1,6 @@
 import type { Metadata } from 'next'
 import type { Finding, Severity } from '@/types/findings'
 import { decodeFindings } from '@/lib/share'
-<<<<<<< feat/results-og-meta
-import ResultsClient from './ResultsClient'
-=======
 import FindingsTable from '@/components/FindingsTable'
 import FindingsSkeleton from '@/components/FindingsSkeleton'
 import EmptyState from '@/components/EmptyState'
@@ -16,7 +13,6 @@ export default function ResultsPage() {
   const [findings, setFindings] = useState<Finding[] | null>(null)
   const [copied, setCopied] = useState(false)
   const [duration, setDuration] = useState<string | null>(null)
->>>>>>> main
 
 interface Props {
   searchParams: { r?: string }
@@ -30,17 +26,6 @@ export function generateMetadata({ searchParams }: Props): Metadata {
       openGraph: { title: 'Soroban Guard — Scan Results' },
       twitter: { card: 'summary' },
     }
-<<<<<<< feat/results-og-meta
-  }
-
-  const findings = decodeFindings(r)
-  if (findings.length === 0) {
-    return {
-      title: 'Soroban Guard — Scan Results',
-      openGraph: { title: 'Soroban Guard — Scan Results' },
-      twitter: { card: 'summary' },
-    }
-=======
     try {
       setFindings(JSON.parse(raw) as Finding[])
       setDuration(sessionStorage.getItem('sg_duration'))
@@ -72,23 +57,12 @@ export function generateMetadata({ searchParams }: Props): Metadata {
         <FindingsSkeleton />
       </div>
     )
->>>>>>> main
+ main
   }
 
   const counts: Record<Severity, number> = { Critical: 0, High: 0, Medium: 0, Low: 0 }
   for (const f of findings) counts[f.severity]++
 
-<<<<<<< feat/results-og-meta
-  const title = `Soroban Guard — ${findings.length} finding${findings.length !== 1 ? 's' : ''} detected`
-  const description = `High: ${counts.High} · Medium: ${counts.Medium} · Low: ${counts.Low}`
-
-  return {
-    title,
-    description,
-    openGraph: { title, description },
-    twitter: { card: 'summary', title, description },
-  }
-=======
   const canCopy = typeof navigator !== 'undefined' && navigator.clipboard
 
   return (
@@ -220,7 +194,6 @@ export function generateMetadata({ searchParams }: Props): Metadata {
       </footer>
     </div>
   )
->>>>>>> main
 }
 
 export default function ResultsPage({ searchParams }: Props) {

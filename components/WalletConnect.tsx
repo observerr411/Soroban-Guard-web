@@ -33,7 +33,7 @@ export default function WalletConnect() {
     setError(null)
   }
 
-  if (!installed) {
+  if (!isFreighterInstalled()) {
     return (
       <a
         href="https://freighter.app"
@@ -60,7 +60,7 @@ export default function WalletConnect() {
           )}
         </div>
         <button
-          onClick={handleDisconnect}
+          onClick={disconnect}
           className="text-xs text-slate-500 hover:text-slate-300"
         >
           Disconnect
@@ -72,7 +72,7 @@ export default function WalletConnect() {
   return (
     <div className="flex flex-col gap-2">
       <button
-        onClick={handleConnect}
+        onClick={connect}
         disabled={loading}
         className="flex items-center gap-2 rounded-lg border border-[#2a2d3a] bg-[#12151f] px-4 py-2 text-sm text-slate-300 transition hover:border-indigo-500/40 hover:text-white disabled:opacity-50"
       >
