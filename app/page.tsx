@@ -8,6 +8,7 @@ import NetworkBadge from '@/components/NetworkBadge'
 import NetworkSelector, { getStoredNetwork } from '@/components/NetworkSelector'
 import NetworkHealthBanner from '@/components/NetworkHealthBanner'
 import ThemeToggle from '@/components/ThemeToggle'
+import BatchScanButton from '@/components/BatchScanButton'
 import { scanContract, ApiError } from '@/lib/api'
 import type { ScanQuota } from '@/lib/api'
 import { checkNetworkHealth } from '@/lib/stellar'
@@ -168,6 +169,7 @@ function HomePage() {
           {walletKey && (
             <div className="mb-3 flex flex-col items-center gap-3">
               <NetworkBadge network={walletNetwork} />
+              <BatchScanButton publicKey={walletKey} network={walletNetwork} />
               {walletNetwork.name === 'futurenet' && (
                 <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 px-4 py-2.5 text-sm text-violet-300">
                   <p className="flex items-start gap-2">
